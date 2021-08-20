@@ -113,7 +113,7 @@ dplyr::sample_n(crime, 5000) %>%
 Some types of crime are also not distributed evenly at all: thefts and weapon possession is more common in the south, whereas drugs are more common in the north. 
 
 ```{r map crimes presentation}
-dplyr::filter(crime, grepl("(drugs)|(theft)|(weapon)", tolower(category))) %>%
+dplyr::filter(crime, grepl("(drugs)|(theft)", tolower(category))) %>%
   dplyr::sample_n(5000) %>%
   ggplot(aes(x = easting, y = northing)) + 
   geom_point() + 
@@ -124,13 +124,16 @@ dplyr::filter(crime, grepl("(drugs)|(theft)|(weapon)", tolower(category))) %>%
 
 ```{r prepare spatial data}
 collisions_sp <- collisions_t %>%
-  dplyr::select(mode_of_travel, casualty_class, casualty_severity, pedestrian_crossing, longitude, latitude) %>%
+  dplyr::select(mode_of_travel, casualty_class, casualty_severity, pedestrian_crossing, longitude, latitude, date) %>%
   dplyr::mutate(type = dplyr::case_when(
     mode_of_travel == "1 pedestrian" ~ "pedestrian",
     mode_of_travel == "2 pedal cycle" ~ "bicycle",
     mode_of_travel == "4 car" ~ "car",
     TRUE ~ "other"
-  ))
+  ),
+  text = paste0(format.Date(date, "%d-%b-%y"), ":</b> A ",
+                gsub("[0-9] ", "", casualty_severity), " collision involving a ", 
+                gsub("[0-9] ", "", mode_of_travel)))
 ```
 
 ```{r prepare leaflet presets}
@@ -146,7 +149,7 @@ iconTypes <- iconList(
 leaflet(data = collisions_sp) %>% 
   addProviderTiles("CartoDB.Positron") %>% 
   setView(-0.153894, 51.535971, zoom = 12.5) %>% 
-  addMarkers(~longitude, ~latitude, icon = ~iconTypes[type], clusterOptions = markerClusterOptions())
+  addMarkers(~longitude, ~latitude, icon = ~iconTypes[type], clusterOptions = markerClusterOptions(), popup = ~text)
 ```
 
 

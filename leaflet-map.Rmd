@@ -28,13 +28,16 @@ collisions <- RSocrata::read.socrata("https://opendata.camden.gov.uk/resource/pu
 
 ```{r prepare spatial data, include=FALSE}
 collisions_sp <- collisions %>%
-  dplyr::select(mode_of_travel, casualty_class, casualty_severity, pedestrian_crossing, longitude, latitude) %>%
+  dplyr::select(mode_of_travel, casualty_class, casualty_severity, pedestrian_crossing, longitude, latitude, date) %>%
   dplyr::mutate(type = dplyr::case_when(
     mode_of_travel == "1 pedestrian" ~ "pedestrian",
     mode_of_travel == "2 pedal cycle" ~ "bicycle",
     mode_of_travel == "4 car" ~ "car",
     TRUE ~ "other"
-  ))
+  ),
+  text = paste0(format.Date(date, "%d-%b-%y"), ":</b> A ",
+                gsub("[0-9] ", "", casualty_severity), " collision involving a ", 
+                gsub("[0-9] ", "", mode_of_travel)))
 ```
 
 ```{r prepare leaflet presets, include=FALSE}
@@ -46,11 +49,11 @@ iconTypes <- iconList(
 )
 ```
 
-```{r leaflet map, echo = FALSE}
+```{r leaflet map, echo=FALSE}
 leaflet(data = collisions_sp) %>% 
   addProviderTiles("CartoDB.Positron") %>% 
   setView(-0.153894, 51.535971, zoom = 12.5) %>% 
-  addMarkers(~longitude, ~latitude, icon = ~iconTypes[type], clusterOptions = markerClusterOptions())
+  addMarkers(~longitude, ~latitude, icon = ~iconTypes[type], clusterOptions = markerClusterOptions(), popup = ~text)
 ```
 
 Data source: [Open Data Camden](https://opendata.camden.gov.uk/Transport/Road-Collision-Casualties-In-Camden/puar-wf4h)
