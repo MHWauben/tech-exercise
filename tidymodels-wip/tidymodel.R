@@ -73,7 +73,7 @@ c_test %>%
   summarise(Freq = n()) %>%
   ungroup() %>%
   dplyr::mutate(prop = Freq / sum(Freq)) %>%
-  ggplot(aes(x = casualty_severity, y = rf_predictions, fill = prop))+
+  ggplot(aes(x = casualty_severity, y = rf_predictions, fill = Freq))+
   geom_tile()+ 
   guides(colour = guide_legend(reverse=T))
 
