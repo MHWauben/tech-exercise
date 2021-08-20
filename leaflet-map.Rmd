@@ -1,0 +1,59 @@
+---
+title: "Interactive Camden map"
+output:
+  govdown::govdown_document:
+    font: "sans-serif" # (default) or "new-transport"
+    favicon: "none" # or "none" (default) or "govuk" see ?govdown_document
+    logo: false # or false (default)
+    logo_url: "https://ukgovdatascience.github.io/govdown/"
+    logo_text: "As tech demo"
+    page_title: "Interactive Camden map"
+    title: "Interactive Camden map"
+    phase: alpha
+    feedback_url: "https://github.com/ukgovdatascience/govdown/issues"
+    google_analytics: "UA-12345678-90"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(RSocrata)
+library(dplyr)
+library(magrittr)
+library(leaflet)
+library(renv)
+# Load data
+collisions <- RSocrata::read.socrata("https://opendata.camden.gov.uk/resource/puar-wf4h.csv") %>%
+  dplyr::mutate_if(is.character, tolower)
+```
+
+```{r prepare spatial data, include=FALSE}
+collisions_sp <- collisions %>%
+  dplyr::select(mode_of_travel, casualty_class, casualty_severity, pedestrian_crossing, longitude, latitude, date) %>%
+  dplyr::mutate(type = dplyr::case_when(
+    mode_of_travel == "1 pedestrian" ~ "pedestrian",
+    mode_of_travel == "2 pedal cycle" ~ "bicycle",
+    mode_of_travel == "4 car" ~ "car",
+    TRUE ~ "other"
+  ),
+  text = paste0(format.Date(date, "%d-%b-%y"), ":</b> A ",
+                gsub("[0-9] ", "", casualty_severity), " collision involving a ", 
+                gsub("[0-9] ", "", mode_of_travel)))
+```
+
+```{r prepare leaflet presets, include=FALSE}
+iconTypes <- iconList(
+  bike = makeIcon("icons/bicycle.png", "icons/bicycle.png", 20, 20),
+  car = makeIcon("icons/car.png", "icons/car.png", 20, 20),
+  pedestrian = makeIcon("icons/pedestrian.png", "icons/pedestrian.png", 20, 20),
+  other = makeIcon("icons/other.png", "icons/other.png", 20, 20)
+)
+```
+
+```{r leaflet map, echo=FALSE}
+leaflet(data = collisions_sp) %>% 
+  addProviderTiles("CartoDB.Positron") %>% 
+  setView(-0.153894, 51.535971, zoom = 12.5) %>% 
+  addMarkers(~longitude, ~latitude, icon = ~iconTypes[type], clusterOptions = markerClusterOptions(), popup = ~text)
+```
+
+Data source: [Open Data Camden](https://opendata.camden.gov.uk/Transport/Road-Collision-Casualties-In-Camden/puar-wf4h)

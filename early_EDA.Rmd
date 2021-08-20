@@ -1,0 +1,155 @@
+---
+title: "Early EDA"
+author: "Martine Wauben"
+date: "20/08/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(renv)
+renv::restore()
+library(tidyverse)
+library(tidymodels)
+library(data.table)
+library(plotly)
+library(maptools)
+library(rgdal)
+library(leaflet)
+# Use RSocrata recommended by API developer docs: https://dev.socrata.com/foundry/opendata.camden.gov.uk/tr8t-gqz7
+library(RSocrata)
+```
+
+
+```{r load data}
+#### UK POSTCODE LOOKUP ####
+# Apply filter for inner london data only
+postcodes <- RSocrata::read.socrata("https://opendata.camden.gov.uk/resource/tr8t-gqz7.csv?county_code=E13000001")
+inner_london_wards <- unique(postcodes$ward_code)
+
+#### ON STREET CRIME ####
+crime <- RSocrata::read.socrata("https://opendata.camden.gov.uk/resource/qeje-7ve7.csv")
+
+#### ROAD COLLISIONS ####
+collisions <- RSocrata::read.socrata("https://opendata.camden.gov.uk/resource/puar-wf4h.csv")
+```
+
+# EDA for collision data
+
+```{r early exploration collisions}
+summary(collisions)
+unique(collisions$casualty_severity)
+```
+
+We have information on severity. Is severity distributed evenly?
+
+```{r map collision fatalities}
+collisions_t <- collisions %>%
+  dplyr::mutate_if(is.character, tolower)
+
+#### HEATMAP ####
+ggplot(collisions_t, aes(x = easting, y = northing)) + 
+  geom_point() + 
+  stat_density2d(aes(fill=..density..), geom = "tile", contour = FALSE) +
+  scale_fill_gradient2(low = "white", high = "red")+
+  facet_wrap(~casualty_severity)
+
+collisions_t %>%
+  dplyr::group_by(casualty_severity, casualty_class) %>%
+  dplyr::summarise(Freq = n()) %>%
+  dplyr::mutate(Total_coll = sum(Freq),
+                   prop = Freq / Total_coll) %>%
+  ggplot(aes(x=casualty_severity,y=casualty_class)) +
+    geom_tile(aes(fill=prop))
+  
+```
+
+Road collisions with fatal outcomes appear to happen more in the northern parts, whereas in the southern parts there are more slight injuries. For slight injuries, there is also an odd "stripy" effect happening.
+
+Are there particularly dangerous crossings for particular groups? Within fatal or serious incidents among different casualty types, are particular crossings more common?
+
+```{r pedestrian crossings}
+unique(collisions_t$pedestrian_crossing)
+collisions_t %>%
+  dplyr::group_by(casualty_class, casualty_severity, pedestrian_crossing) %>%
+  dplyr::summarise(Freq = n()) %>%
+  dplyr::mutate(Total_coll = sum(Freq),
+                   prop = Freq / Total_coll) %>%
+  ggplot(aes(x=casualty_severity,y=pedestrian_crossing)) +
+    geom_tile(aes(fill=prop))+
+  facet_wrap(~casualty_class)+
+  labs(title = "Severity by casualty type")
+
+collisions_t %>%
+  dplyr::group_by(mode_of_travel, casualty_severity, pedestrian_crossing) %>%
+  dplyr::summarise(Freq = n()) %>%
+  dplyr::mutate(Total_coll = sum(Freq),
+                   prop = Freq / Total_coll) %>%
+  ggplot(aes(x=casualty_severity,y=pedestrian_crossing)) +
+    geom_tile(aes(fill=prop))+
+  facet_wrap(~mode_of_travel)+
+  labs(title = "Severity by travel mode")
+```
+
+In other words, serious and fatal incidents happen much more often for drivers or passengers where there are no crossing facilities: likely these invove no pedestrians at all. 
+Pedestrian casualties are more likely where there are traffic lights (ats), when it's supposedly the pedestrian's phase (in other words, cars ignoring a red light). 
+
+# EDA for crime data
+
+```{r early exploration crime}
+summary(crime)
+unique(crime$category)
+```
+
+```{r map crimes}
+#### HEATMAP ####
+dplyr::sample_n(crime, 5000) %>%
+  ggplot(aes(x = easting, y = northing)) + 
+  geom_point() + 
+  stat_density2d(aes(fill=..density..), geom = "tile", contour = FALSE) +
+  scale_fill_gradient2(low = "white", high = "red")+
+  facet_wrap(~category)
+```
+
+Some types of crime are also not distributed evenly at all: thefts and weapon possession is more common in the south, whereas drugs are more common in the north. 
+
+```{r map crimes presentation}
+dplyr::filter(crime, grepl("(drugs)|(theft)", tolower(category))) %>%
+  dplyr::sample_n(5000) %>%
+  ggplot(aes(x = easting, y = northing)) + 
+  geom_point() + 
+  stat_density2d(aes(fill=..density..), geom = "tile", contour = FALSE) +
+  scale_fill_gradient2(low = "white", high = "red")+
+  facet_wrap(~category)
+```
+
+```{r prepare spatial data}
+collisions_sp <- collisions_t %>%
+  dplyr::select(mode_of_travel, casualty_class, casualty_severity, pedestrian_crossing, longitude, latitude, date) %>%
+  dplyr::mutate(type = dplyr::case_when(
+    mode_of_travel == "1 pedestrian" ~ "pedestrian",
+    mode_of_travel == "2 pedal cycle" ~ "bicycle",
+    mode_of_travel == "4 car" ~ "car",
+    TRUE ~ "other"
+  ),
+  text = paste0(format.Date(date, "%d-%b-%y"), ":</b> A ",
+                gsub("[0-9] ", "", casualty_severity), " collision involving a ", 
+                gsub("[0-9] ", "", mode_of_travel)))
+```
+
+```{r prepare leaflet presets}
+iconTypes <- iconList(
+  bike = makeIcon("icons/bicycle.png", "icons/bicycle.png", 20, 20),
+  car = makeIcon("icons/car.png", "icons/car.png", 20, 20),
+  pedestrian = makeIcon("icons/pedestrian.png", "icons/pedestrian.png", 20, 20),
+  other = makeIcon("icons/other.png", "icons/other.png", 20, 20)
+)
+```
+
+```{r leaflet map}
+leaflet(data = collisions_sp) %>% 
+  addProviderTiles("CartoDB.Positron") %>% 
+  setView(-0.153894, 51.535971, zoom = 12.5) %>% 
+  addMarkers(~longitude, ~latitude, icon = ~iconTypes[type], clusterOptions = markerClusterOptions(), popup = ~text)
+```
+
+
